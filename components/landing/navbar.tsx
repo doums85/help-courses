@@ -67,12 +67,14 @@ export function Navbar() {
 
           {/* Mobile Menu */}
           <Sheet>
-            <SheetTrigger asChild>
-              <Button variant="ghost" size="icon" className="md:hidden">
-                <Menu className="h-6 w-6" />
-                <span className="sr-only">Ouvrir le menu</span>
-              </Button>
-            </SheetTrigger>
+            <SheetTrigger
+              render={
+                <Button variant="ghost" size="icon" className="md:hidden">
+                  <Menu className="h-6 w-6" />
+                  <span className="sr-only">Ouvrir le menu</span>
+                </Button>
+              }
+            />
             <SheetContent side="right" className="w-[300px] sm:w-[400px]">
               <SheetHeader className="text-left border-b border-gray-100 pb-4">
                 <SheetTitle>
