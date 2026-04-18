@@ -23,7 +23,7 @@ export function Section({
     <section
       id={id}
       className={cn(
-        "mx-auto w-full max-w-6xl px-5 py-20 sm:px-8 sm:py-24",
+        "mx-auto w-full max-w-7xl px-5 py-20 sm:px-8 sm:py-24",
         className,
       )}
     >

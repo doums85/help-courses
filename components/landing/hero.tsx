@@ -1,15 +1,27 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { motion } from "framer-motion";
-import { ArrowRight, Sparkles, Trophy, CheckCircle2 } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
+import {
+  ArrowRight,
+  Calculator,
+  CheckCircle2,
+  Flame,
+  Trophy,
+} from "lucide-react";
+
+import { ElegantShape } from "./elegant-shape";
 
 export function Hero() {
   return (
-    <section className="relative overflow-hidden px-5 pt-16 pb-24 sm:px-8 sm:pt-24 sm:pb-32">
+    <section
+      id="accueil"
+      className="relative overflow-hidden px-5 pt-16 pb-24 sm:px-8 sm:pt-24 sm:pb-32"
+    >
       <BackgroundGradients />
 
-      <div className="relative mx-auto grid w-full max-w-6xl items-center gap-14 lg:grid-cols-[1.1fr_1fr]">
+      <div className="relative mx-auto grid w-full max-w-7xl items-center gap-14 lg:grid-cols-[1.1fr_1fr]">
         <div className="text-center lg:text-left">
           <motion.span
             initial={{ opacity: 0, y: 8 }}
@@ -17,7 +29,10 @@ export function Hero() {
             transition={{ duration: 0.4 }}
             className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800"
           >
-            <Sparkles className="size-3.5" aria-hidden />
+            <span
+              aria-hidden
+              className="size-1.5 rounded-full bg-emerald-500"
+            />
             100 % gratuit · Sans pub
           </motion.span>
 
@@ -27,15 +42,7 @@ export function Hero() {
             transition={{ duration: 0.5, delay: 0.05 }}
             className="mt-5 font-sans text-4xl font-extrabold leading-[1.05] tracking-tight text-gray-900 sm:text-5xl lg:text-[56px]"
           >
-            Apprendre devient{" "}
-            <span className="relative inline-block">
-              <span className="relative z-10">un jeu</span>
-              <span
-                aria-hidden
-                className="absolute inset-x-0 bottom-1 -z-0 h-3 rounded-full bg-amber-300/80"
-              />
-            </span>
-            .
+            Apprendre devient <RotatingWord />.
           </motion.h1>
 
           <motion.p
@@ -101,11 +108,86 @@ export function Hero() {
   );
 }
 
+const ROTATING_WORDS = [
+  { text: "un jeu", color: "bg-amber-300/80" },
+  { text: "une aventure", color: "bg-lime-300/80" },
+  { text: "un réflexe", color: "bg-orange-300/80" },
+];
+
+function RotatingWord() {
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setIndex((current) => (current + 1) % ROTATING_WORDS.length);
+    }, 2400);
+    return () => clearInterval(interval);
+  }, []);
+
+  const current = ROTATING_WORDS[index];
+
+  return (
+    <span className="relative inline-block align-baseline">
+      <AnimatePresence mode="wait">
+        <motion.span
+          key={current.text}
+          initial={{ opacity: 0, y: "0.25em", rotateX: -35 }}
+          animate={{ opacity: 1, y: 0, rotateX: 0 }}
+          exit={{ opacity: 0, y: "-0.25em", rotateX: 35 }}
+          transition={{ duration: 0.5, ease: [0.22, 0.61, 0.36, 1] }}
+          className="relative inline-block whitespace-nowrap"
+          style={{ transformStyle: "preserve-3d" }}
+        >
+          <span className="relative z-10">{current.text}</span>
+          <motion.span
+            aria-hidden
+            layout
+            className={`absolute inset-x-0 bottom-1 -z-0 h-3 rounded-full ${current.color}`}
+          />
+        </motion.span>
+      </AnimatePresence>
+    </span>
+  );
+}
+
 function BackgroundGradients() {
   return (
-    <div aria-hidden className="pointer-events-none absolute inset-0">
+    <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
       <div className="absolute -top-24 left-1/2 size-[520px] -translate-x-1/2 rounded-full bg-gradient-to-br from-amber-200/60 via-orange-200/50 to-lime-200/50 blur-3xl" />
       <div className="absolute -bottom-20 right-1/4 size-[320px] rounded-full bg-yellow-200/50 blur-3xl" />
+
+      <ElegantShape
+        delay={0.3}
+        width={420}
+        height={110}
+        rotate={12}
+        gradient="from-amber-400/40"
+        className="left-[-8%] top-[12%] md:left-[-3%]"
+      />
+      <ElegantShape
+        delay={0.5}
+        width={320}
+        height={90}
+        rotate={-15}
+        gradient="from-lime-400/35"
+        className="right-[-4%] top-[65%] md:right-[2%]"
+      />
+      <ElegantShape
+        delay={0.4}
+        width={220}
+        height={60}
+        rotate={-8}
+        gradient="from-orange-400/40"
+        className="left-[8%] bottom-[6%] md:left-[12%]"
+      />
+      <ElegantShape
+        delay={0.6}
+        width={150}
+        height={45}
+        rotate={20}
+        gradient="from-yellow-400/35"
+        className="right-[18%] top-[8%] md:right-[22%]"
+      />
     </div>
   );
 }
@@ -123,9 +205,9 @@ function HeroVisual() {
           <div className="flex items-center gap-2">
             <span
               aria-hidden
-              className="flex size-10 items-center justify-center rounded-xl bg-amber-100 text-xl"
+              className="flex size-10 items-center justify-center rounded-xl bg-amber-100 text-amber-700"
             >
-              🧮
+              <Calculator className="size-5" />
             </span>
             <div>
               <p className="text-xs font-medium text-gray-500">Mathématiques</p>
@@ -204,9 +286,9 @@ function HeroVisual() {
       >
         <span
           aria-hidden
-          className="flex size-8 items-center justify-center rounded-lg bg-orange-100 text-sm"
+          className="flex size-8 items-center justify-center rounded-lg bg-orange-100 text-orange-600"
         >
-          🔥
+          <Flame className="size-4" />
         </span>
         <div className="pr-1">
           <p className="text-[10px] font-medium text-gray-500">Série</p>

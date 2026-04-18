@@ -1,7 +1,8 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Menu } from "lucide-react";
+import { ArrowRight, Menu } from "lucide-react";
 import { motion } from "framer-motion";
 
 import { Brand } from "./brand";
@@ -15,13 +16,46 @@ import {
 import { Button } from "@/components/ui/button";
 
 const LINKS = [
-  { href: "#comment", label: "Comment ça marche" },
-  { href: "#exercices", label: "Exercices" },
-  { href: "#pour-qui", label: "Pour qui" },
-  { href: "#faq", label: "FAQ" },
+  { href: "#accueil", id: "accueil", label: "Accueil" },
+  { href: "#comment", id: "comment", label: "Comment ça marche" },
+  { href: "#exercices", id: "exercices", label: "Exercices" },
+  { href: "#pour-qui", id: "pour-qui", label: "Pour qui" },
+  { href: "#faq", id: "faq", label: "FAQ" },
 ];
 
+function useActiveSection() {
+  const [active, setActive] = useState<string>("accueil");
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+        if (visible) {
+          setActive(visible.target.id);
+        }
+      },
+      {
+        rootMargin: "-35% 0px -55% 0px",
+        threshold: [0, 0.25, 0.5, 0.75, 1],
+      },
+    );
+
+    LINKS.forEach(({ id }) => {
+      const el = document.getElementById(id);
+      if (el) observer.observe(el);
+    });
+
+    return () => observer.disconnect();
+  }, []);
+
+  return active;
+}
+
 export function Navbar() {
+  const active = useActiveSection();
+
   return (
     <motion.header
       initial={{ y: -20, opacity: 0 }}
@@ -31,38 +65,59 @@ export function Navbar() {
     >
       <nav
         aria-label="Navigation principale"
-        className="mx-auto flex h-24 w-full max-w-6xl items-center justify-between px-5 sm:px-8"
+        className="mx-auto flex h-24 w-full max-w-7xl items-center justify-between px-5 sm:px-8"
       >
         <Brand size="lg" priority className="h-20 w-auto" />
 
-        <ul className="hidden items-center gap-7 text-sm font-medium text-gray-600 md:flex">
-          {LINKS.map((link) => (
-            <li key={link.href}>
-              <a
-                href={link.href}
-                className="transition-colors hover:text-gray-900"
-              >
-                {link.label}
-              </a>
-            </li>
-          ))}
+        <ul className="hidden items-center gap-8 text-base font-medium md:flex">
+          {LINKS.map((link) => {
+            const isActive = active === link.id;
+            return (
+              <li key={link.href} className="relative">
+                <a
+                  href={link.href}
+                  aria-current={isActive ? "page" : undefined}
+                  className={`relative inline-block py-1.5 transition-colors ${
+                    isActive
+                      ? "text-gray-900"
+                      : "text-gray-600 hover:text-gray-900"
+                  }`}
+                >
+                  {link.label}
+                  {isActive && (
+                    <motion.span
+                      layoutId="navbar-active-indicator"
+                      aria-hidden
+                      className="absolute inset-x-0 -bottom-0.5 h-0.5 rounded-full bg-amber-500"
+                      transition={{
+                        type: "spring",
+                        stiffness: 380,
+                        damping: 30,
+                      }}
+                    />
+                  )}
+                </a>
+              </li>
+            );
+          })}
         </ul>
 
         <div className="flex items-center gap-2">
           <Link
             href="/login"
-            className="hidden rounded-full px-4 py-2 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-100 sm:inline-flex"
+            className="hidden rounded-full px-5 py-2.5 text-base font-semibold text-gray-700 transition-colors hover:bg-gray-100 sm:inline-flex"
           >
             Se connecter
           </Link>
           <Link
             href="/register"
-            className="hidden items-center gap-1.5 rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-transform hover:bg-gray-800 active:scale-[0.98] sm:inline-flex"
+            className="group hidden items-center gap-2 rounded-full bg-gray-900 px-5 py-2.5 text-base font-semibold text-white shadow-sm transition-all hover:bg-gray-800 active:scale-[0.98] sm:inline-flex"
           >
             Commencer
-            <span aria-hidden className="text-amber-300">
-              ✨
-            </span>
+            <ArrowRight
+              className="size-4 transition-transform group-hover:translate-x-0.5"
+              aria-hidden
+            />
           </Link>
 
           {/* Mobile Menu */}
@@ -81,17 +136,31 @@ export function Navbar() {
                   <Brand size="lg" className="h-16 w-auto" />
                 </SheetTitle>
               </SheetHeader>
-              <div className="mt-8 flex flex-col gap-6 px-2">
-                {LINKS.map((link) => (
-                  <a
-                    key={link.href}
-                    href={link.href}
-                    className="text-lg font-medium text-gray-600 transition-colors hover:text-gray-900"
-                  >
-                    {link.label}
-                  </a>
-                ))}
-                <hr className="border-gray-100" />
+              <div className="mt-8 flex flex-col gap-2 px-2">
+                {LINKS.map((link) => {
+                  const isActive = active === link.id;
+                  return (
+                    <a
+                      key={link.href}
+                      href={link.href}
+                      aria-current={isActive ? "page" : undefined}
+                      className={`relative flex items-center rounded-xl px-3 py-2.5 text-lg font-medium transition-colors ${
+                        isActive
+                          ? "bg-amber-50 text-amber-900"
+                          : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                      }`}
+                    >
+                      {isActive && (
+                        <span
+                          aria-hidden
+                          className="absolute inset-y-2 left-0 w-1 rounded-full bg-amber-500"
+                        />
+                      )}
+                      {link.label}
+                    </a>
+                  );
+                })}
+                <hr className="my-4 border-gray-100" />
                 <div className="flex flex-col gap-3">
                   <Link
                     href="/login"
@@ -101,9 +170,13 @@ export function Navbar() {
                   </Link>
                   <Link
                     href="/register"
-                    className="flex h-12 items-center justify-center rounded-xl bg-gray-900 text-base font-semibold text-white shadow-sm transition-transform active:scale-[0.98]"
+                    className="group flex h-12 items-center justify-center gap-2 rounded-xl bg-gray-900 text-base font-semibold text-white shadow-sm transition-transform active:scale-[0.98]"
                   >
-                    Commencer ✨
+                    Commencer
+                    <ArrowRight
+                      className="size-4 transition-transform group-hover:translate-x-0.5"
+                      aria-hidden
+                    />
                   </Link>
                 </div>
               </div>
