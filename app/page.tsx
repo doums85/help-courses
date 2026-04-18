@@ -7,6 +7,7 @@ import { Gamification } from "@/components/landing/gamification";
 import { Hero } from "@/components/landing/hero";
 import { HowItWorks } from "@/components/landing/how-it-works";
 import { Navbar } from "@/components/landing/navbar";
+import { ScrollToTop } from "@/components/landing/scroll-to-top";
 import { FadeIn, ScaleIn } from "@/components/ui/motion-wrapper";
 
 export default function StorefrontPage() {
@@ -35,6 +36,7 @@ export default function StorefrontPage() {
         </ScaleIn>
       </main>
       <Footer />
+      <ScrollToTop />
     </div>
   );
 }
