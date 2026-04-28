@@ -2,15 +2,39 @@ import { defineSchema, defineTable } from "convex/server";
 import { authTables } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 
+// ---------------------------------------------------------------------------
+// Class enum (curriculum stages, élémentaire sénégalais).
+// MVP-1 ships CE2 + CM1 only; the full enum is here so the schema is
+// forward-compatible with the public big-bang launch (Decision 14).
+// ---------------------------------------------------------------------------
+const classEnum = v.union(
+  v.literal("CI"),
+  v.literal("CP"),
+  v.literal("CE1"),
+  v.literal("CE2"),
+  v.literal("CM1"),
+  v.literal("CM2"),
+);
+
+// ---------------------------------------------------------------------------
+// AI gateway purposes — mirrors aiGateway/registry.ts. Listed here as
+// literal union so settings.modelOverrides (Decision 76) can validate keys.
+// ---------------------------------------------------------------------------
+const aiPurposeEnum = v.union(
+  v.literal("palier_base"),
+  v.literal("palier_personalized"),
+  v.literal("verify_short_answer"),
+  v.literal("explain_mistake"),
+  v.literal("verify_math"),
+);
+
 export default defineSchema({
   ...authTables,
   // ---------------------------------------------------------------------------
   // profiles
-  // Stores user identity information linked to Convex Auth.
-  // One profile per authenticated user; role determines access level.
   // ---------------------------------------------------------------------------
   profiles: defineTable({
-    userId: v.string(), // Subject ID from Convex Auth
+    userId: v.string(),
     role: v.union(
       v.literal("admin"),
       v.literal("parent"),
@@ -24,7 +48,6 @@ export default defineSchema({
 
   // ---------------------------------------------------------------------------
   // studentGuardians
-  // N-to-N junction table linking students to their guardians/tutors/teachers.
   // ---------------------------------------------------------------------------
   studentGuardians: defineTable({
     studentId: v.id("profiles"),
@@ -40,7 +63,6 @@ export default defineSchema({
 
   // ---------------------------------------------------------------------------
   // subjects
-  // Top-level curriculum categories (e.g. Mathematics, French).
   // ---------------------------------------------------------------------------
   subjects: defineTable({
     name: v.string(),
@@ -50,25 +72,20 @@ export default defineSchema({
   }),
 
   // ---------------------------------------------------------------------------
-  // topics
-  // Sub-sections within a subject (e.g. Fractions within Mathematics).
+  // topics — added `class` (Decision 10 + 14)
   // ---------------------------------------------------------------------------
   topics: defineTable({
     subjectId: v.id("subjects"),
     name: v.string(),
     description: v.string(),
     order: v.number(),
-  }).index("by_subjectId", ["subjectId"]),
+    class: v.optional(classEnum), // optional for backward-compat with seeded rows
+  })
+    .index("by_subjectId", ["subjectId"])
+    .index("by_subjectId_class", ["subjectId", "class"]),
 
   // ---------------------------------------------------------------------------
-  // exercises
-  // Individual learning tasks belonging to a topic.
-  // payload shape varies by type; v.any() is used to accommodate all variants:
-  //   qcm        -> { options: string[], correctIndex: number, explanation?: string }
-  //   match      -> { pairs: { left: string, right: string }[] }
-  //   order      -> { correctSequence: string[] }
-  //   drag-drop  -> { zones: string[], items: { text: string, correctZone: string }[] }
-  //   short-answer -> { acceptedAnswers: string[], tolerance?: string }
+  // exercises — extended for paliers (Decisions 9, 10, 46, 52, 53, 71, 75)
   // ---------------------------------------------------------------------------
   exercises: defineTable({
     topicId: v.id("topics"),
@@ -89,12 +106,25 @@ export default defineSchema({
     sourcePdfUploadId: v.optional(v.id("pdfUploads")),
     generatedBy: v.union(v.literal("ai"), v.literal("manual")),
     reviewedBy: v.optional(v.id("profiles")),
-    publishedAt: v.optional(v.number()), // Unix timestamp ms
-  }).index("by_topicId", ["topicId"]),
+    publishedAt: v.optional(v.number()),
+
+    // ---------------- v2 palier extensions ----------------
+    palierIndex: v.optional(v.number()), // 1..10
+    palierId: v.optional(v.id("paliers")),
+    personalizedFor: v.optional(v.id("profiles")), // "J'en veux encore" personalised pool
+    palierAttemptId: v.optional(v.id("palierAttempts")), // attached to current attempt (regen)
+    mathExpression: v.optional(v.string()), // Decision 71 — fact-check anchor
+    needsManualReview: v.optional(v.boolean()), // Decision 53 — flagged by factCheck
+    isVariation: v.optional(v.boolean()), // Decision 52
+    originalExerciseId: v.optional(v.id("exercises")), // Decision 52 — traceability
+  })
+    .index("by_topicId", ["topicId"])
+    .index("by_palierId", ["palierId"])
+    .index("by_palierAttemptId", ["palierAttemptId"])
+    .index("by_personalizedFor", ["personalizedFor"]),
 
   // ---------------------------------------------------------------------------
-  // attempts
-  // Records each time a student submits an answer to an exercise.
+  // attempts — added gradedScore + palierAttemptId (Decisions 12, 51, 52)
   // ---------------------------------------------------------------------------
   attempts: defineTable({
     studentId: v.id("profiles"),
@@ -104,15 +134,17 @@ export default defineSchema({
     attemptNumber: v.number(),
     hintsUsedCount: v.number(),
     timeSpentMs: v.number(),
-    submittedAt: v.number(), // Unix timestamp ms
+    submittedAt: v.number(),
+    gradedScore: v.optional(v.number()), // 0..10 per scoring.computeExerciseScore
+    palierAttemptId: v.optional(v.id("palierAttempts")),
   })
     .index("by_studentId_exerciseId", ["studentId", "exerciseId"])
-    .index("by_studentId", ["studentId"]),
+    .index("by_studentId", ["studentId"])
+    .index("by_palierAttemptId", ["palierAttemptId"])
+    .index("by_palierAttempt_exercise", ["palierAttemptId", "exerciseId"]),
 
   // ---------------------------------------------------------------------------
   // studentTopicProgress
-  // Aggregated progress metrics per student per topic.
-  // Updated after each attempt; drives mastery level and completion tracking.
   // ---------------------------------------------------------------------------
   studentTopicProgress: defineTable({
     studentId: v.id("profiles"),
@@ -120,18 +152,14 @@ export default defineSchema({
     completedExercises: v.number(),
     correctExercises: v.number(),
     totalHintsUsed: v.number(),
-    masteryLevel: v.number(), // e.g. 0–100
-    completedAt: v.optional(v.number()), // Unix timestamp ms
+    masteryLevel: v.number(),
+    completedAt: v.optional(v.number()),
   })
     .index("by_studentId", ["studentId"])
     .index("by_studentId_topicId", ["studentId", "topicId"]),
 
   // ---------------------------------------------------------------------------
   // badges
-  // Achievement definitions. A badge may be scoped to a specific subject.
-  // condition is a machine-readable tag (e.g. "complete_topic", "streak_3").
-  // The catalog-related fields (catalogKey, conditionType, tiers, etc.) are
-  // optional and used by the seeded badge catalog system.
   // ---------------------------------------------------------------------------
   badges: defineTable({
     name: v.string(),
@@ -154,30 +182,25 @@ export default defineSchema({
 
   // ---------------------------------------------------------------------------
   // earnedBadges
-  // Junction table recording when a student earned a specific badge.
-  // The tier/progress fields are optional and used by the catalog badge system.
   // ---------------------------------------------------------------------------
   earnedBadges: defineTable({
     badgeId: v.id("badges"),
     studentId: v.id("profiles"),
-    earnedAt: v.number(), // Unix timestamp ms
+    earnedAt: v.number(),
     currentTier: v.optional(v.number()),
     lastTierUpAt: v.optional(v.number()),
     progressValue: v.optional(v.number()),
   }).index("by_studentId", ["studentId"]),
 
   // ---------------------------------------------------------------------------
-  // pdfUploads
-  // Tracks PDF files uploaded by admins for AI-assisted exercise generation.
-  // storageId is the Convex file storage reference.
-  // extractedRaw holds the raw JSON returned by GPT-4 before review.
+  // pdfUploads (legacy — kept while admin PDF flow is wound down)
   // ---------------------------------------------------------------------------
   pdfUploads: defineTable({
     adminId: v.id("profiles"),
-    storageId: v.string(), // Convex file storage ID
+    storageId: v.string(),
     originalFilename: v.string(),
     mimeType: v.string(),
-    size: v.number(), // bytes
+    size: v.number(),
     subjectId: v.id("subjects"),
     status: v.union(
       v.literal("uploaded"),
@@ -185,16 +208,14 @@ export default defineSchema({
       v.literal("reviewed"),
       v.literal("published"),
     ),
-    extractedRaw: v.optional(v.any()), // raw JSON from GPT-4
-    extractedAt: v.optional(v.number()), // Unix timestamp ms
-    reviewedAt: v.optional(v.number()), // Unix timestamp ms
-    publishedAt: v.optional(v.number()), // Unix timestamp ms
+    extractedRaw: v.optional(v.any()),
+    extractedAt: v.optional(v.number()),
+    reviewedAt: v.optional(v.number()),
+    publishedAt: v.optional(v.number()),
   }).index("by_status", ["status"]),
 
   // ---------------------------------------------------------------------------
   // topicReports
-  // Diagnostic reports generated per student per topic.
-  // emailSentAt records when the report was delivered to a guardian.
   // ---------------------------------------------------------------------------
   topicReports: defineTable({
     studentId: v.id("profiles"),
@@ -203,6 +224,190 @@ export default defineSchema({
     strengths: v.array(v.string()),
     weaknesses: v.array(v.string()),
     frequentMistakes: v.array(v.string()),
-    emailSentAt: v.optional(v.number()), // Unix timestamp ms
+    emailSentAt: v.optional(v.number()),
   }).index("by_studentId_topicId", ["studentId", "topicId"]),
+
+  // ===========================================================================
+  // v2 NEW TABLES
+  // ===========================================================================
+
+  // ---------------------------------------------------------------------------
+  // paliers
+  // (subject, class, topic, palierIndex) bucket with weekly cache.
+  // Decisions 3, 9, 10, 46, 53, 56, 75
+  // ---------------------------------------------------------------------------
+  paliers: defineTable({
+    subjectId: v.id("subjects"),
+    topicId: v.id("topics"),
+    class: classEnum,
+    palierIndex: v.number(), // 1..10
+    status: v.union(
+      v.literal("cached"),
+      v.literal("stale"),
+      v.literal("generating"),
+    ),
+    qaStatus: v.optional(
+      v.union(
+        v.literal("auto_ok"),
+        v.literal("pending_human"),
+        v.literal("human_approved"),
+        v.literal("rejected"),
+      ),
+    ),
+    factCheckResults: v.optional(
+      v.object({
+        totalChecked: v.number(),
+        divergences: v.number(),
+      }),
+    ),
+    shuffleSeed: v.optional(v.string()), // Decision 75 — server-side deterministic shuffle seed prefix
+    preGenerated: v.optional(v.boolean()), // Decision 73 — tagged by J0 pre-gen script
+    generatedAt: v.number(),
+    expiresAt: v.number(), // generatedAt + 7d
+    generationTraceId: v.optional(v.string()),
+  })
+    .index("by_bucket", ["subjectId", "class", "topicId", "palierIndex"])
+    .index("by_topic_class", ["topicId", "class"])
+    .index("by_status", ["status"]),
+
+  // ---------------------------------------------------------------------------
+  // palierAttempts
+  // Track a kid's run through a palier (10 exos). Status drives UI + regen.
+  // Decisions 12, 13, 50, 52, 59, 78
+  // ---------------------------------------------------------------------------
+  palierAttempts: defineTable({
+    userId: v.id("profiles"),
+    palierId: v.id("paliers"),
+    startedAt: v.number(),
+    completedAt: v.optional(v.number()),
+    status: v.union(
+      v.literal("in_progress"),
+      v.literal("validated"),
+      v.literal("failed"),
+      v.literal("regen_failed"), // Decision 78
+      v.literal("abandoned"),
+    ),
+    averageScore: v.optional(v.number()), // 0..10
+    failedExerciseIds: v.optional(v.array(v.id("exercises"))),
+    regenCount: v.number(), // 0..3, capped at submitPalier-level
+  })
+    .index("by_user", ["userId"])
+    .index("by_user_palier", ["userId", "palierId"])
+    .index("by_palier", ["palierId"]),
+
+  // ---------------------------------------------------------------------------
+  // palierAttemptHistory
+  // Cumulative regen tracking per (user, palier) over a 7-day rolling window.
+  // Decisions 60, 77, 88
+  // ---------------------------------------------------------------------------
+  palierAttemptHistory: defineTable({
+    userId: v.id("profiles"),
+    palierId: v.id("paliers"),
+    regenCount: v.number(),
+    lastRegenAt: v.number(),
+    parentNotifiedAt: v.optional(v.number()), // Decision 88 — anti-spam
+    createdAt: v.number(),
+  })
+    .index("by_user_palier", ["userId", "palierId"])
+    .index("by_createdAt", ["createdAt"]),
+
+  // ---------------------------------------------------------------------------
+  // aiUsage
+  // Per-call telemetry (success or failure) for budget + audit.
+  // Decisions 4, 45, 69
+  // ---------------------------------------------------------------------------
+  aiUsage: defineTable({
+    userId: v.optional(v.id("profiles")),
+    purpose: aiPurposeEnum,
+    modelUsed: v.string(),
+    inputTokens: v.number(),
+    outputTokens: v.number(),
+    costUsd: v.number(),
+    latencyMs: v.number(),
+    status: v.union(
+      v.literal("ok"),
+      v.literal("failed"),
+      v.literal("rejected_budget"),
+      v.literal("rejected_quota"),
+    ),
+    traceId: v.string(),
+    metadata: v.optional(v.any()),
+    createdAt: v.number(),
+    month: v.string(), // YYYY-MM, indexed for budget queries
+    errorMessage: v.optional(v.string()),
+  })
+    .index("by_month", ["month"])
+    .index("by_month_status", ["month", "status"])
+    .index("by_user_month", ["userId", "month"])
+    .index("by_traceId", ["traceId"]),
+
+  // ---------------------------------------------------------------------------
+  // aiUserQuota
+  // Daily rate limit per (user, purpose, scope).
+  // Decisions 47, 54
+  // ---------------------------------------------------------------------------
+  aiUserQuota: defineTable({
+    userId: v.id("profiles"),
+    purpose: aiPurposeEnum,
+    quotaScope: v.union(
+      v.literal("kid_initiated"),
+      v.literal("system_regen"),
+    ),
+    count: v.number(),
+    resetAt: v.number(), // unix ms; row is replaced on next day
+    dayKey: v.string(), // YYYY-MM-DD for fast lookup
+  })
+    .index("by_user_scope_day", ["userId", "quotaScope", "dayKey"])
+    .index("by_user_purpose_day", ["userId", "purpose", "dayKey"]),
+
+  // ---------------------------------------------------------------------------
+  // settings (singleton)
+  // Decisions 4, 45, 69, 70, 76
+  // ---------------------------------------------------------------------------
+  settings: defineTable({
+    singleton: v.literal("settings"), // always "settings"
+    aiMonthlyBudgetUsd: v.number(), // default 100
+    economyMode: v.boolean(), // default false (auto-on at 90%)
+    dailyMoreLimitPerKid: v.number(), // default 3
+    modelOverrides: v.optional(v.record(v.string(), v.string())), // purpose -> modelId
+    updatedAt: v.number(),
+    updatedBy: v.optional(v.id("profiles")),
+  }).index("by_singleton", ["singleton"]),
+
+  // ---------------------------------------------------------------------------
+  // exerciseReports
+  // Kid-flagged exos via "Cet exo est bizarre" button. Decision 94
+  // ---------------------------------------------------------------------------
+  exerciseReports: defineTable({
+    exerciseId: v.id("exercises"),
+    userId: v.id("profiles"),
+    reason: v.optional(
+      v.union(
+        v.literal("unclear"),
+        v.literal("wrong_answer"),
+        v.literal("too_hard"),
+        v.literal("other"),
+      ),
+    ),
+    note: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_exercise", ["exerciseId"])
+    .index("by_user", ["userId"]),
+
+  // ---------------------------------------------------------------------------
+  // parentSettings
+  // Per-kid wellbeing toggles, owned by the parent profile. Decision 84
+  // ---------------------------------------------------------------------------
+  parentSettings: defineTable({
+    parentId: v.id("profiles"),
+    kidId: v.id("profiles"),
+    streaksEnabled: v.boolean(),
+    dailyMissionEnabled: v.boolean(),
+    kidPushNotifsEnabled: v.boolean(),
+    parentLowScoreNotifEnabled: v.boolean(),
+    updatedAt: v.number(),
+  })
+    .index("by_kid", ["kidId"])
+    .index("by_parent_kid", ["parentId", "kidId"]),
 });

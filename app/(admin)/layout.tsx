@@ -5,11 +5,10 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   BookOpen,
-  FileText,
-  PenTool,
   Award,
   Users,
   Settings,
+  Zap,
 } from "lucide-react";
 
 import { Brand } from "@/components/landing/brand";
@@ -32,8 +31,7 @@ import { UserMenu } from "@/components/ui/user-menu";
 const sidebarLinks = [
   { href: "/admin/dashboard", label: "Tableau de bord", icon: LayoutDashboard },
   { href: "/admin/subjects", label: "Matières", icon: BookOpen },
-  { href: "/admin/pdf-uploads", label: "PDFs", icon: FileText },
-  { href: "/admin/exercises/drafts", label: "Exercices", icon: PenTool },
+  { href: "/admin/ai-settings", label: "AI Gateway", icon: Zap },
   { href: "/admin/badges", label: "Badges", icon: Award },
   { href: "/admin/eleves", label: "Élèves", icon: Users },
   { href: "/admin/settings", label: "Paramètres", icon: Settings },
