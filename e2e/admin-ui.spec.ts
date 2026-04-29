@@ -5,7 +5,8 @@ test.describe("Espace Admin - Layout", () => {
     await page.goto("/admin/dashboard");
     await expect(page.getByRole("link", { name: /Tableau de bord/i }).first()).toBeVisible();
     await expect(page.getByRole("link", { name: /Matières/i }).first()).toBeVisible();
-    await expect(page.getByRole("link", { name: /Exercices/i }).first()).toBeVisible();
+    // MVP-1 : "Exercices" et "PDFs" retirés (Decision 49) ; remplacés par "AI Gateway"
+    await expect(page.getByRole("link", { name: /AI Gateway/i }).first()).toBeVisible();
   });
 
   test("la page /admin/subjects se charge", async ({ page }) => {

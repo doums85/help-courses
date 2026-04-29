@@ -1,45 +1,159 @@
 "use client";
 
-import { use, useState, useEffect } from "react";
-import { useQuery } from "convex/react";
+import { use, useState, useEffect, useCallback } from "react";
+import { useQuery, useMutation, useAction, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { useRouter } from "next/navigation";
-import { Loader2, BookOpen, UserCircle, X } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { BookOpen, X, Lightbulb, WifiOff } from "lucide-react";
 import Link from "next/link";
-import ExercisePlayer from "@/components/exercises/ExercisePlayer";
-import { useGamificationStore } from "@/stores/gamification-store";
+
+import { JotnaLoader } from "@/components/jotna-loader";
+import { StarRating, PalierStarsBar } from "@/components/star-rating";
+import { CapRegenAlternatives } from "@/components/cap-regen-alternatives";
+import { kidMessages } from "@/lib/kidCopy";
+import QcmExercise from "@/components/exercises/QcmExercise";
+import ShortAnswerExercise from "@/components/exercises/ShortAnswerExercise";
+import MatchExercise from "@/components/exercises/MatchExercise";
+import OrderExercise from "@/components/exercises/OrderExercise";
+import DragDropExercise from "@/components/exercises/DragDropExercise";
+import { motion, AnimatePresence } from "framer-motion";
+
+type SanitizedExo = {
+  _id: Id<"exercises">;
+  type: "qcm" | "drag-drop" | "match" | "order" | "short-answer";
+  prompt: string;
+  payload: Record<string, unknown>;
+  hintsAvailable: number;
+  palierAttemptId: Id<"palierAttempts">;
+  isVariation: boolean;
+};
+
+type PalierResult = {
+  status: "validated" | "failed";
+  average: number;
+  starsTotal: number;
+  threshold: number;
+  failedCount: number;
+  canRegen: boolean;
+  cumulativeRegens: number;
+};
 
 export default function TopicSessionPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const { id } = use(params);
+  const { id: topicId } = use(params);
   const router = useRouter();
-  const { showConfetti } = useGamificationStore();
+  const searchParams = useSearchParams();
+  const palierIndex = parseInt(searchParams.get("palier") ?? "1", 10);
 
-  const profile = useQuery(api.profiles.getCurrentProfile);
-
-  const exercises = useQuery(api.exercises.listByTopic, {
-    topicId: id as Id<"topics">,
-    status: "published",
-  });
-
-  const resumeIndex = useQuery(api.attempts.getResumeIndex, {
-    topicId: id as Id<"topics">,
-  });
-
-  const [sessionStarted, setSessionStarted] = useState(false);
-
+  // Wait for Convex auth before querying profile (Decision 99 — anti race-condition)
+  const { isLoading: authLoading, isAuthenticated } = useConvexAuth();
+  const profile = useQuery(
+    api.profiles.getCurrentProfile,
+    isAuthenticated ? {} : "skip",
+  );
   const topic = useQuery(api.topics.getById, {
-    id: id as Id<"topics">,
+    id: topicId as Id<"topics">,
   });
 
-  const handleQuit = () => {
+  const getBucket = useAction(api.paliers.index.getBucket);
+  const startAttempt = useMutation(api.paliers.index.startPalierAttempt);
+  const verifyAttempt = useMutation(api.palierAttempts.verifyAttempt);
+  const requestHint = useMutation(api.palierAttempts.requestHint);
+  const submitPalier = useMutation(api.palierAttempts.submitPalier);
+  const regenerate = useAction(api.paliers.index.regenerateFailedExercises);
+
+  // Bootstrap state
+  const [palierAttemptId, setPalierAttemptId] =
+    useState<Id<"palierAttempts"> | null>(null);
+  const [bootstrapError, setBootstrapError] = useState<string | null>(null);
+  const [bootstrapping, setBootstrapping] = useState(false);
+
+  // Load exercises (only when palierAttemptId ready)
+  const exercises = useQuery(
+    api.paliers.index.getExercisesForPalier,
+    palierAttemptId ? { palierAttemptId } : "skip",
+  ) as SanitizedExo[] | null | undefined;
+
+  // Palier loop state
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [feedback, setFeedback] = useState<{
+    correct: boolean;
+    attemptsRemaining: number;
+  } | null>(null);
+  const [hintShown, setHintShown] = useState<{
+    text: string;
+    index: number;
+  } | null>(null);
+  const [hintsUsedThisExo, setHintsUsedThisExo] = useState(0);
+  const [palierResult, setPalierResult] = useState<PalierResult | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
+  const [isOnline, setIsOnline] = useState(true);
+
+  // Network status (Decision 90)
+  useEffect(() => {
+    const update = () => setIsOnline(navigator.onLine);
+    update();
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
+    return () => {
+      window.removeEventListener("online", update);
+      window.removeEventListener("offline", update);
+    };
+  }, []);
+
+  // Bootstrap : getBucket → startAttempt
+  useEffect(() => {
+    if (!topic || palierAttemptId || bootstrapping) return;
+    (async () => {
+      setBootstrapping(true);
+      setBootstrapError(null);
+      try {
+        if (!topic.class) {
+          setBootstrapError(
+            "Cette thématique n'a pas encore de classe assignée.",
+          );
+          return;
+        }
+        const bucket = await getBucket({
+          subjectId: topic.subjectId,
+          class: topic.class as
+            | "CI"
+            | "CP"
+            | "CE1"
+            | "CE2"
+            | "CM1"
+            | "CM2",
+          topicId: topicId as Id<"topics">,
+          palierIndex,
+        });
+        const attemptId = await startAttempt({ palierId: bucket.palierId });
+        setPalierAttemptId(attemptId);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Erreur inconnue";
+        setBootstrapError(msg);
+      } finally {
+        setBootstrapping(false);
+      }
+    })();
+  }, [
+    topic,
+    palierAttemptId,
+    bootstrapping,
+    getBucket,
+    startAttempt,
+    topicId,
+    palierIndex,
+  ]);
+
+  const handleQuit = useCallback(() => {
     if (
       !window.confirm(
-        "Veux-tu vraiment quitter ? Ta progression est sauvegardée, tu pourras reprendre plus tard.",
+        "Veux-tu vraiment quitter ? Ta progression est sauvegardée.",
       )
     )
       return;
@@ -48,26 +162,98 @@ export default function TopicSessionPage({
     } else {
       router.push("/student/home");
     }
-  };
+  }, [router, topic]);
 
-  if (
-    profile === undefined ||
-    exercises === undefined ||
-    resumeIndex === undefined
-  ) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-8 w-8 animate-spin text-orange-500" />
-        <span className="ml-3 text-gray-500">Chargement des exercices...</span>
-      </div>
-    );
+  const handleSubmitAnswer = useCallback(
+    async (answer: string) => {
+      if (!exercises || !palierAttemptId) return;
+      const exo = exercises[currentIndex];
+      if (!exo) return;
+      try {
+        const res = await verifyAttempt({
+          exerciseId: exo._id,
+          palierAttemptId,
+          userAnswer: answer,
+        });
+        setFeedback({
+          correct: res.isCorrect,
+          attemptsRemaining: res.attemptsRemaining,
+        });
+      } catch (err) {
+        console.error(err);
+      }
+    },
+    [exercises, palierAttemptId, currentIndex, verifyAttempt],
+  );
+
+  const handleRequestHint = useCallback(async () => {
+    if (!exercises || !palierAttemptId) return;
+    const exo = exercises[currentIndex];
+    if (!exo) return;
+    if (hintsUsedThisExo >= exo.hintsAvailable) return;
+    try {
+      const res = await requestHint({
+        exerciseId: exo._id,
+        palierAttemptId,
+        hintIndex: hintsUsedThisExo,
+      });
+      setHintShown({ text: res.hint, index: res.hintIndex });
+      setHintsUsedThisExo((n) => n + 1);
+    } catch (err) {
+      console.error(err);
+    }
+  }, [exercises, palierAttemptId, currentIndex, hintsUsedThisExo, requestHint]);
+
+  const handleNextExo = useCallback(async () => {
+    if (!exercises) return;
+    setFeedback(null);
+    setHintShown(null);
+    setHintsUsedThisExo(0);
+    if (currentIndex < exercises.length - 1) {
+      setCurrentIndex(currentIndex + 1);
+      return;
+    }
+    // End of palier — submit
+    if (!palierAttemptId) return;
+    setSubmitting(true);
+    try {
+      const res = await submitPalier({ palierAttemptId });
+      setPalierResult(res as PalierResult);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSubmitting(false);
+    }
+  }, [exercises, currentIndex, palierAttemptId, submitPalier]);
+
+  const handleRegen = useCallback(async () => {
+    if (!palierAttemptId) return;
+    setRegenerating(true);
+    try {
+      await regenerate({ palierAttemptId });
+      setPalierResult(null);
+      setCurrentIndex(0);
+      setFeedback(null);
+      setHintShown(null);
+      setHintsUsedThisExo(0);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Erreur";
+      alert(msg);
+    } finally {
+      setRegenerating(false);
+    }
+  }, [palierAttemptId, regenerate]);
+
+  // ==== RENDER ====
+
+  // Loading states — wait for auth resolution AND queries
+  if (authLoading || (isAuthenticated && profile === undefined) || topic === undefined) {
+    return <JotnaLoader />;
   }
-
-  if (profile === null) {
+  if (!isAuthenticated || profile === null) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 space-y-4 text-center">
-        <UserCircle className="h-16 w-16 text-gray-300" />
-        <h2 className="text-xl font-bold text-gray-900">Non connecté</h2>
+      <CenteredCard>
+        <h2 className="text-xl font-bold">Non connecté</h2>
         <p className="text-gray-500">Connecte-toi pour faire les exercices.</p>
         <Link
           href="/login"
@@ -75,112 +261,365 @@ export default function TopicSessionPage({
         >
           Se connecter
         </Link>
-      </div>
+      </CenteredCard>
+    );
+  }
+  if (!topic) {
+    return (
+      <CenteredCard>
+        <BookOpen className="h-16 w-16 text-gray-300" />
+        <h2 className="text-xl font-bold">Thématique introuvable</h2>
+      </CenteredCard>
     );
   }
 
-  if (exercises.length === 0) {
+  if (bootstrapError) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 space-y-4">
+      <CenteredCard>
+        <p className="text-base text-red-600">{bootstrapError}</p>
+        <button
+          onClick={() => router.back()}
+          className="rounded-2xl bg-gray-200 px-6 py-2 text-base font-semibold"
+        >
+          Retour
+        </button>
+      </CenteredCard>
+    );
+  }
+
+  if (!palierAttemptId || exercises === undefined) {
+    return <JotnaLoader />;
+  }
+  if (exercises === null || exercises.length === 0) {
+    return (
+      <CenteredCard>
         <BookOpen className="h-16 w-16 text-gray-300" />
-        <h2 className="text-xl font-bold text-gray-900">
-          Aucun exercice disponible
-        </h2>
-        <p className="text-gray-500">
-          Cette thematique n&apos;a pas encore d&apos;exercices publies.
-        </p>
+        <h2 className="text-xl font-bold">Aucun exercice disponible</h2>
         <button
           onClick={() => router.back()}
           className="rounded-2xl bg-gradient-to-r from-orange-400 to-pink-500 px-6 py-3 text-base font-bold text-white shadow-lg"
         >
           Retour
         </button>
-      </div>
+      </CenteredCard>
     );
   }
 
-  const isResuming = resumeIndex !== null && resumeIndex > 0;
-
-  if (!sessionStarted) {
+  // Final palier screen
+  if (palierResult) {
+    const validated = palierResult.status === "validated";
     return (
-      <div className="flex flex-col items-center justify-center py-16 space-y-6">
-        <div className="rounded-3xl bg-gradient-to-r from-orange-400 via-pink-400 to-purple-500 p-8 text-center text-white shadow-xl max-w-md">
-          <BookOpen className="mx-auto h-16 w-16 mb-4" />
-          <h1 className="text-3xl font-extrabold mb-2">
-            {isResuming ? "On reprend !" : "C'est parti !"}
+      <div className="mx-auto max-w-2xl space-y-6 py-8">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className={`rounded-3xl p-8 text-center text-white shadow-xl ${
+            validated
+              ? "bg-gradient-to-r from-green-400 to-emerald-500"
+              : "bg-gradient-to-r from-orange-400 via-pink-500 to-purple-500"
+          }`}
+        >
+          <h1 className="text-3xl font-extrabold mb-3">
+            {validated
+              ? kidMessages.palierValidatedShort
+              : "Palier non validé"}
           </h1>
-          <p className="text-lg opacity-90">
-            {isResuming
-              ? `Tu étais à l'exercice ${(resumeIndex ?? 0) + 1} sur ${exercises.length}`
-              : `${exercises.length} exercice${exercises.length !== 1 ? "s" : ""} à compléter`}
+          <p className="text-lg opacity-90 mb-4">
+            {validated
+              ? kidMessages.palierValidated(palierResult.starsTotal)
+              : kidMessages.palierFailed(palierResult.starsTotal)}
           </p>
-        </div>
-        <button
-          onClick={() => setSessionStarted(true)}
-          className="rounded-2xl bg-gradient-to-r from-orange-400 to-pink-500 px-8 py-4 text-xl font-extrabold text-white shadow-xl transition-all hover:shadow-2xl hover:scale-[1.03]"
-        >
-          {isResuming ? "Reprendre l'exercice" : "Commencer les exercices"}
-        </button>
-        <Link
-          href={topic?.subjectId ? `/student/subjects/${topic.subjectId}` : "/student/home"}
-          className="text-sm text-gray-500 hover:text-gray-700 underline underline-offset-2"
-        >
-          Retour
-        </Link>
+          <div className="mx-auto max-w-sm">
+            <PalierStarsBar
+              starsTotal={palierResult.starsTotal}
+              threshold={palierResult.threshold * 3}
+            />
+          </div>
+        </motion.div>
+
+        {!validated && palierResult.canRegen && !regenerating && (
+          <div className="text-center space-y-3">
+            <p className="text-base text-gray-700">{kidMessages.regenIntro}</p>
+            <button
+              onClick={handleRegen}
+              className="rounded-2xl bg-gradient-to-r from-orange-400 to-pink-500 px-8 py-3 text-lg font-bold text-white shadow-lg hover:scale-[1.02] transition-all"
+            >
+              {kidMessages.regenCta}
+            </button>
+          </div>
+        )}
+
+        {regenerating && (
+          <JotnaLoader message={kidMessages.regenLoading} />
+        )}
+
+        {!validated && !palierResult.canRegen && (
+          <CapRegenAlternatives
+            onSeeCorrected={() =>
+              router.push(`/student/topics/${topicId}/session?palier=${palierIndex}&review=1`)
+            }
+            previousPalierHref={
+              palierIndex > 1
+                ? `/student/topics/${topicId}/session?palier=${palierIndex - 1}`
+                : null
+            }
+            onAskParent={() => {
+              alert("Ton parent va recevoir une notification 📩");
+              router.push("/student/home");
+            }}
+          />
+        )}
+
+        {validated && (
+          <div className="text-center">
+            <Link
+              href={`/student/topics/${topicId}/session?palier=${palierIndex + 1}`}
+              className="inline-block rounded-2xl bg-gradient-to-r from-orange-400 to-pink-500 px-8 py-3 text-lg font-bold text-white shadow-lg hover:scale-[1.02] transition-all"
+            >
+              Palier suivant 🚀
+            </Link>
+          </div>
+        )}
       </div>
     );
   }
 
-  const handleComplete = (stats: {
-    correctCount: number;
-    totalCount: number;
-    totalTimeMs: number;
-    totalHintsUsed: number;
-  }) => {
-    // Store stats in sessionStorage for the complete page
-    sessionStorage.setItem(`session_stats_${id}`, JSON.stringify(stats));
-    router.push(`/student/topics/${id}/complete`);
-  };
+  // In-progress palier player
+  const exo = exercises[currentIndex];
+  const totalExos = exercises.length;
+  const disabled = feedback !== null;
 
   return (
     <div className="relative mx-auto max-w-2xl py-4">
-      {/* Quit button — top-right, sticky */}
-      <div className="mb-2 flex justify-end">
+      {/* Network drop banner (Decision 90) */}
+      {!isOnline && (
+        <div className="mb-3 flex items-center gap-2 rounded-xl bg-yellow-100 px-4 py-2 text-sm text-yellow-800">
+          <WifiOff className="h-4 w-4" />
+          {kidMessages.networkLost}
+        </div>
+      )}
+
+      {/* Header */}
+      <div className="mb-4 flex items-center justify-between">
+        <div className="text-sm text-gray-500">
+          <span className="font-semibold text-gray-700">
+            {topic.name ?? "Palier"} — niveau {palierIndex}
+          </span>
+          <span className="mx-2">·</span>
+          <span>
+            Question {currentIndex + 1}/{totalExos}
+          </span>
+          {exo?.isVariation && (
+            <span className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">
+              Variation
+            </span>
+          )}
+        </div>
         <button
           type="button"
           onClick={handleQuit}
-          className="inline-flex items-center gap-1.5 rounded-full bg-white/70 px-3 py-1.5 text-sm font-medium text-gray-600 shadow-sm backdrop-blur-sm transition-colors hover:bg-white hover:text-gray-900"
+          className="inline-flex items-center gap-1.5 rounded-full bg-white/70 px-3 py-1.5 text-xs font-medium text-gray-600 shadow-sm hover:bg-white"
         >
           <X className="h-4 w-4" />
-          Sauvegarder et quitter
+          {kidMessages.cta.quit}
         </button>
       </div>
 
-      {/* Confetti overlay */}
-      {showConfetti && <ConfettiEffect />}
+      {/* Progress bar */}
+      <div className="mb-6 h-2 w-full overflow-hidden rounded-full bg-gray-200">
+        <motion.div
+          initial={{ width: 0 }}
+          animate={{
+            width: `${((currentIndex + (feedback?.correct ? 1 : 0)) / totalExos) * 100}%`,
+          }}
+          className="h-full bg-gradient-to-r from-orange-400 to-pink-500"
+        />
+      </div>
 
-      <ExercisePlayer
-        exercises={exercises}
-        topicId={id}
-        studentId={profile._id}
-        initialIndex={resumeIndex ?? 0}
-        onComplete={handleComplete}
-      />
+      {/* Exercise */}
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={`${exo._id}-${feedback?.correct ?? "pending"}`}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -10 }}
+          transition={{ duration: 0.2 }}
+          className="rounded-3xl bg-white p-6 shadow-md"
+        >
+          <ExerciseRenderer
+            exo={exo}
+            disabled={disabled}
+            isCorrect={feedback?.correct ?? null}
+            onSubmit={handleSubmitAnswer}
+          />
+
+          {/* Hints */}
+          {!disabled && exo.hintsAvailable > 0 && (
+            <div className="mt-4 flex items-center justify-between">
+              <button
+                onClick={handleRequestHint}
+                disabled={hintsUsedThisExo >= exo.hintsAvailable}
+                className="inline-flex items-center gap-2 rounded-xl bg-amber-100 px-4 py-2 text-sm font-semibold text-amber-800 transition-all hover:bg-amber-200 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Lightbulb className="h-4 w-4" />
+                Demander un indice ({hintsUsedThisExo}/{exo.hintsAvailable})
+              </button>
+              {hintsUsedThisExo > 0 && (
+                <span className="text-xs italic text-gray-500">
+                  {kidMessages.hintLevel(hintsUsedThisExo, exo.hintsAvailable)}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Hint display */}
+          {hintShown && (
+            <motion.div
+              initial={{ opacity: 0, y: 5 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mt-3 rounded-xl bg-amber-50 border border-amber-200 p-3"
+            >
+              <p className="text-sm text-amber-900">
+                <span className="font-semibold">
+                  Indice {hintShown.index + 1} :
+                </span>{" "}
+                {hintShown.text}
+              </p>
+            </motion.div>
+          )}
+
+          {/* Feedback */}
+          {feedback && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="mt-4 space-y-3"
+            >
+              <div
+                className={`rounded-xl px-4 py-3 text-center font-semibold ${
+                  feedback.correct
+                    ? "bg-green-100 text-green-800"
+                    : "bg-orange-100 text-orange-800"
+                }`}
+              >
+                {feedback.correct
+                  ? "✅ Bravo !"
+                  : feedback.attemptsRemaining > 0
+                    ? `Pas tout à fait. Il te reste ${feedback.attemptsRemaining} essai${feedback.attemptsRemaining > 1 ? "s" : ""}.`
+                    : "Tu peux passer à la suite."}
+              </div>
+              {(feedback.correct || feedback.attemptsRemaining === 0) && (
+                <button
+                  onClick={handleNextExo}
+                  disabled={submitting}
+                  className="w-full rounded-2xl bg-gradient-to-r from-orange-400 to-pink-500 px-6 py-3 text-lg font-bold text-white shadow-lg hover:scale-[1.01] transition-all"
+                >
+                  {currentIndex < totalExos - 1
+                    ? kidMessages.cta.next
+                    : submitting
+                      ? "..."
+                      : "Voir mon résultat"}
+                </button>
+              )}
+              {!feedback.correct && feedback.attemptsRemaining > 0 && (
+                <button
+                  onClick={() => setFeedback(null)}
+                  className="w-full rounded-xl bg-white px-6 py-3 text-base font-semibold text-orange-600 border-2 border-orange-300 hover:bg-orange-50 transition-all"
+                >
+                  Réessayer
+                </button>
+              )}
+            </motion.div>
+          )}
+        </motion.div>
+      </AnimatePresence>
     </div>
   );
 }
 
-function ConfettiEffect() {
-  useEffect(() => {
-    import("canvas-confetti").then((mod) => {
-      mod.default({
-        particleCount: 100,
-        spread: 70,
-        origin: { y: 0.6 },
-        colors: ["#f97316", "#ec4899", "#8b5cf6", "#22c55e", "#eab308"],
-      });
-    });
-  }, []);
+// ===========================================================================
+// Helpers
+// ===========================================================================
 
-  return null;
+function CenteredCard({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-16 space-y-4 text-center">
+      {children}
+    </div>
+  );
+}
+
+function ExerciseRenderer({
+  exo,
+  disabled,
+  isCorrect,
+  onSubmit,
+}: {
+  exo: SanitizedExo;
+  disabled: boolean;
+  isCorrect: boolean | null;
+  onSubmit: (answer: string) => void;
+}) {
+  // Existing components expect payloads with the answer fields; we pass the
+  // sanitized payload as-is. They render UI without the answer, which is fine
+  // because verification now happens server-side via mutation.
+  switch (exo.type) {
+    case "qcm":
+      return (
+        <QcmExercise
+          prompt={exo.prompt}
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          payload={exo.payload as any}
+          disabled={disabled}
+          isCorrect={isCorrect}
+          onSubmit={onSubmit}
+        />
+      );
+    case "short-answer":
+      return (
+        <ShortAnswerExercise
+          prompt={exo.prompt}
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          payload={exo.payload as any}
+          disabled={disabled}
+          isCorrect={isCorrect}
+          onSubmit={onSubmit}
+        />
+      );
+    case "match":
+      return (
+        <MatchExercise
+          prompt={exo.prompt}
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          payload={exo.payload as any}
+          disabled={disabled}
+          isCorrect={isCorrect}
+          onSubmit={onSubmit}
+        />
+      );
+    case "order":
+      return (
+        <OrderExercise
+          prompt={exo.prompt}
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          payload={exo.payload as any}
+          disabled={disabled}
+          isCorrect={isCorrect}
+          onSubmit={onSubmit}
+        />
+      );
+    case "drag-drop":
+      return (
+        <DragDropExercise
+          prompt={exo.prompt}
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          payload={exo.payload as any}
+          disabled={disabled}
+          isCorrect={isCorrect}
+          onSubmit={onSubmit}
+        />
+      );
+    default:
+      return <p>Type d&apos;exercice non supporté</p>;
+  }
 }

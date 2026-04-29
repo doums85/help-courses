@@ -14,12 +14,23 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
+      use: {
+        ...devices["Desktop Chrome"],
+        // Disable Same-Site cookie restrictions for cross-origin Convex Auth in dev
+        launchOptions: {
+          args: [
+            "--disable-features=SameSiteByDefaultCookies,CookiesWithoutSameSiteMustBeSecure",
+            "--disable-web-security",
+          ],
+        },
+        ignoreHTTPSErrors: true,
+      },
     },
   ],
   webServer: {
     command: "pnpm dev",
     url: "http://localhost:3000",
     reuseExistingServer: !process.env.CI,
+    timeout: 180_000,
   },
 });

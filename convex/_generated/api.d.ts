@@ -9,22 +9,39 @@
  */
 
 import type * as ResendOTPPasswordReset from "../ResendOTPPasswordReset.js";
+import type * as aiGateway_budget from "../aiGateway/budget.js";
+import type * as aiGateway_db from "../aiGateway/db.js";
+import type * as aiGateway_factCheck from "../aiGateway/factCheck.js";
+import type * as aiGateway_index from "../aiGateway/index.js";
+import type * as aiGateway_quota from "../aiGateway/quota.js";
+import type * as aiGateway_registry from "../aiGateway/registry.js";
 import type * as attempts from "../attempts.js";
 import type * as attemptsExplain from "../attemptsExplain.js";
 import type * as attemptsVerify from "../attemptsVerify.js";
 import type * as auth from "../auth.js";
 import type * as badges from "../badges.js";
+import type * as crons from "../crons.js";
 import type * as exercises from "../exercises.js";
 import type * as http from "../http.js";
+import type * as linkRequests from "../linkRequests.js";
+import type * as linkRequestsEmail from "../linkRequestsEmail.js";
+import type * as migrations from "../migrations.js";
+import type * as palierAttempts from "../palierAttempts.js";
+import type * as paliers_index from "../paliers/index.js";
+import type * as paliers_prompts from "../paliers/prompts.js";
+import type * as paliers_scoring from "../paliers/scoring.js";
 import type * as pdfUploads from "../pdfUploads.js";
 import type * as pdfUploadsExtract from "../pdfUploadsExtract.js";
 import type * as profiles from "../profiles.js";
 import type * as progress from "../progress.js";
+import type * as regenNotificationEmail from "../regenNotificationEmail.js";
 import type * as reports from "../reports.js";
 import type * as reportsEmail from "../reportsEmail.js";
 import type * as resetContent from "../resetContent.js";
+import type * as settings_index from "../settings/index.js";
 import type * as students from "../students.js";
 import type * as subjects from "../subjects.js";
+import type * as testSeeds from "../testSeeds.js";
 import type * as topics from "../topics.js";
 
 import type {
@@ -35,22 +52,39 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   ResendOTPPasswordReset: typeof ResendOTPPasswordReset;
+  "aiGateway/budget": typeof aiGateway_budget;
+  "aiGateway/db": typeof aiGateway_db;
+  "aiGateway/factCheck": typeof aiGateway_factCheck;
+  "aiGateway/index": typeof aiGateway_index;
+  "aiGateway/quota": typeof aiGateway_quota;
+  "aiGateway/registry": typeof aiGateway_registry;
   attempts: typeof attempts;
   attemptsExplain: typeof attemptsExplain;
   attemptsVerify: typeof attemptsVerify;
   auth: typeof auth;
   badges: typeof badges;
+  crons: typeof crons;
   exercises: typeof exercises;
   http: typeof http;
+  linkRequests: typeof linkRequests;
+  linkRequestsEmail: typeof linkRequestsEmail;
+  migrations: typeof migrations;
+  palierAttempts: typeof palierAttempts;
+  "paliers/index": typeof paliers_index;
+  "paliers/prompts": typeof paliers_prompts;
+  "paliers/scoring": typeof paliers_scoring;
   pdfUploads: typeof pdfUploads;
   pdfUploadsExtract: typeof pdfUploadsExtract;
   profiles: typeof profiles;
   progress: typeof progress;
+  regenNotificationEmail: typeof regenNotificationEmail;
   reports: typeof reports;
   reportsEmail: typeof reportsEmail;
   resetContent: typeof resetContent;
+  "settings/index": typeof settings_index;
   students: typeof students;
   subjects: typeof subjects;
+  testSeeds: typeof testSeeds;
   topics: typeof topics;
 }>;
 

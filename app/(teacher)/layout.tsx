@@ -7,8 +7,6 @@ import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import {
   LayoutDashboard,
-  PenTool,
-  FileText,
   Users,
   FileBarChart,
   Settings,
@@ -37,8 +35,6 @@ const sidebarLinks = [
     label: "Tableau de bord",
     icon: LayoutDashboard,
   },
-  { href: "/teacher/exercises", label: "Mes exercices", icon: PenTool },
-  { href: "/teacher/pdf-uploads", label: "PDFs", icon: FileText },
   { href: "/teacher/students", label: "Mes élèves", icon: Users },
   { href: "/teacher/reports", label: "Rapports", icon: FileBarChart },
   { href: "/teacher/settings", label: "Paramètres", icon: Settings },
