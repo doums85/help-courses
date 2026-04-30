@@ -390,6 +390,23 @@ export default defineSchema({
   }).index("by_singleton", ["singleton"]),
 
   // ---------------------------------------------------------------------------
+  // exerciseExplanations
+  // AI-generated step-by-step explanation cached per exercise. Triggered on
+  // kid request after exhausting all 5 attempts. Cache-first to keep the
+  // explain_mistake AI cost bounded — same explanation served to every kid
+  // that bricks on the same exercise.
+  // ---------------------------------------------------------------------------
+  exerciseExplanations: defineTable({
+    exerciseId: v.id("exercises"),
+    intro: v.string(),
+    steps: v.array(v.string()),
+    conclusion: v.string(),
+    generatedAt: v.number(),
+    model: v.string(),
+    traceId: v.optional(v.string()),
+  }).index("by_exercise", ["exerciseId"]),
+
+  // ---------------------------------------------------------------------------
   // exerciseReports
   // Kid-flagged exos via "Cet exo est bizarre" button. Decision 94
   // ---------------------------------------------------------------------------

@@ -13,6 +13,7 @@ import { playCorrect, setSoundEnabledLocal } from "@/lib/sounds";
 import { StarRating, PalierStarsBar } from "@/components/star-rating";
 import { CapRegenAlternatives } from "@/components/cap-regen-alternatives";
 import { kidMessages } from "@/lib/kidCopy";
+import { ExplainStepByStep } from "@/components/student/explain-step-by-step";
 import QcmExercise from "@/components/exercises/QcmExercise";
 import ShortAnswerExercise from "@/components/exercises/ShortAnswerExercise";
 import MatchExercise from "@/components/exercises/MatchExercise";
@@ -96,6 +97,9 @@ export default function TopicSessionPage({
   const [palierResult, setPalierResult] = useState<PalierResult | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+  // Step-by-step explanation panel — opened when the kid taps
+  // "Je veux comprendre" after exhausting all 5 attempts on an exercise.
+  const [explainOpen, setExplainOpen] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
 
   // Network status (Decision 90)
@@ -558,6 +562,18 @@ export default function TopicSessionPage({
                     ? `Pas tout à fait. Il te reste ${feedback.attemptsRemaining} essai${feedback.attemptsRemaining > 1 ? "s" : ""}.`
                     : "Tu peux passer à la suite."}
               </div>
+              {/* Step-by-step explanation CTA — only when all 5 attempts
+                  have been used (kid clearly stuck) and the answer was wrong. */}
+              {!feedback.correct && feedback.attemptsRemaining === 0 && (
+                <button
+                  onClick={() => setExplainOpen(true)}
+                  disabled={submitting}
+                  className="flex w-full min-h-12 items-center justify-center gap-2 rounded-2xl border-2 border-orange-300 bg-amber-50 px-6 py-3 text-base font-bold text-orange-700 shadow-sm hover:bg-amber-100 transition-all"
+                >
+                  <Lightbulb className="h-5 w-5" aria-hidden />
+                  Je veux comprendre
+                </button>
+              )}
               {(feedback.correct || feedback.attemptsRemaining === 0) && (
                 <button
                   onClick={handleNextExo}
@@ -583,6 +599,19 @@ export default function TopicSessionPage({
           )}
         </motion.div>
       </AnimatePresence>
+
+      {/* Step-by-step pedagogical explanation overlay (kid clicked
+          "Je veux comprendre" after exhausting all 5 attempts). The
+          `key={exo._id}` forces a remount on exercise change so the
+          loading state resets cleanly without setState-in-effect. */}
+      {exo && (
+        <ExplainStepByStep
+          key={exo._id}
+          exerciseId={exo._id}
+          open={explainOpen}
+          onClose={() => setExplainOpen(false)}
+        />
+      )}
     </div>
   );
 }

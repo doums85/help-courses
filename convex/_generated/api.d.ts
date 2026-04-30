@@ -22,6 +22,7 @@ import type * as auth from "../auth.js";
 import type * as badges from "../badges.js";
 import type * as crons from "../crons.js";
 import type * as exercises from "../exercises.js";
+import type * as explainMistake from "../explainMistake.js";
 import type * as http from "../http.js";
 import type * as linkRequests from "../linkRequests.js";
 import type * as linkRequestsEmail from "../linkRequestsEmail.js";
@@ -66,6 +67,7 @@ declare const fullApi: ApiFromModules<{
   badges: typeof badges;
   crons: typeof crons;
   exercises: typeof exercises;
+  explainMistake: typeof explainMistake;
   http: typeof http;
   linkRequests: typeof linkRequests;
   linkRequestsEmail: typeof linkRequestsEmail;
