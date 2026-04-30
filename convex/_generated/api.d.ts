@@ -39,6 +39,7 @@ import type * as reports from "../reports.js";
 import type * as reportsEmail from "../reportsEmail.js";
 import type * as resetContent from "../resetContent.js";
 import type * as settings_index from "../settings/index.js";
+import type * as streak from "../streak.js";
 import type * as students from "../students.js";
 import type * as subjects from "../subjects.js";
 import type * as testSeeds from "../testSeeds.js";
@@ -82,6 +83,7 @@ declare const fullApi: ApiFromModules<{
   reportsEmail: typeof reportsEmail;
   resetContent: typeof resetContent;
   "settings/index": typeof settings_index;
+  streak: typeof streak;
   students: typeof students;
   subjects: typeof subjects;
   testSeeds: typeof testSeeds;

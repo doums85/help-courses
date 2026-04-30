@@ -5,10 +5,11 @@ import { useQuery, useMutation, useAction, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useRouter, useSearchParams } from "next/navigation";
-import { BookOpen, X, Lightbulb, WifiOff } from "lucide-react";
+import { BookOpen, X, Lightbulb, WifiOff, Volume2, VolumeX } from "lucide-react";
 import Link from "next/link";
 
 import { JotnaLoader } from "@/components/jotna-loader";
+import { playCorrect, setSoundEnabledLocal } from "@/lib/sounds";
 import { StarRating, PalierStarsBar } from "@/components/star-rating";
 import { CapRegenAlternatives } from "@/components/cap-regen-alternatives";
 import { kidMessages } from "@/lib/kidCopy";
@@ -65,6 +66,9 @@ export default function TopicSessionPage({
   const requestHint = useMutation(api.palierAttempts.requestHint);
   const submitPalier = useMutation(api.palierAttempts.submitPalier);
   const regenerate = useAction(api.paliers.index.regenerateFailedExercises);
+  // D22 — quick-mute support during session focus mode
+  const soundPref = useQuery(api.students.getMySoundEnabled);
+  const setSoundEnabled = useMutation(api.streak.setSoundEnabled);
 
   // Bootstrap state
   const [palierAttemptId, setPalierAttemptId] =
@@ -105,6 +109,23 @@ export default function TopicSessionPage({
       window.removeEventListener("offline", update);
     };
   }, []);
+
+  // D29 — sync local sound memo with server preference for play() short-circuit.
+  useEffect(() => {
+    if (soundPref?.soundEnabled !== undefined) {
+      setSoundEnabledLocal(soundPref.soundEnabled);
+    }
+  }, [soundPref?.soundEnabled]);
+
+  const handleToggleSound = useCallback(async () => {
+    const next = !(soundPref?.soundEnabled ?? false);
+    setSoundEnabledLocal(next);
+    try {
+      await setSoundEnabled({ enabled: next });
+    } catch {
+      // Mutation will queue offline; UI reflects optimistic state via memo.
+    }
+  }, [soundPref?.soundEnabled, setSoundEnabled]);
 
   // Bootstrap : getBucket → startAttempt
   useEffect(() => {
@@ -179,6 +200,11 @@ export default function TopicSessionPage({
           correct: res.isCorrect,
           attemptsRemaining: res.attemptsRemaining,
         });
+        // D26 — Play positive sound on correct answer. No-op if muted or
+        // sound module not loaded; never blocks UI feedback.
+        if (res.isCorrect) {
+          void playCorrect();
+        }
       } catch (err) {
         console.error(err);
       }
@@ -415,14 +441,38 @@ export default function TopicSessionPage({
             </span>
           )}
         </div>
-        <button
-          type="button"
-          onClick={handleQuit}
-          className="inline-flex items-center gap-1.5 rounded-full bg-white/70 px-3 py-1.5 text-xs font-medium text-gray-600 shadow-sm hover:bg-white"
-        >
-          <X className="h-4 w-4" />
-          {kidMessages.cta.quit}
-        </button>
+        <div className="flex items-center gap-2">
+          {/* D22 — quick-mute. Only renders if the kid has decided about
+              sounds (soundPref !== null + .soundEnabled defined). Hides for
+              brand-new students who haven't seen the opt-in dialog yet. */}
+          {soundPref && (
+            <button
+              type="button"
+              onClick={handleToggleSound}
+              aria-label={
+                soundPref.soundEnabled
+                  ? "Couper le son"
+                  : "Activer le son"
+              }
+              aria-pressed={soundPref.soundEnabled}
+              className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-white/70 text-gray-600 shadow-sm transition-all hover:bg-white"
+            >
+              {soundPref.soundEnabled ? (
+                <Volume2 className="h-5 w-5" aria-hidden />
+              ) : (
+                <VolumeX className="h-5 w-5" aria-hidden />
+              )}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleQuit}
+            className="inline-flex items-center gap-1.5 rounded-full bg-white/70 px-3 py-1.5 text-xs font-medium text-gray-600 shadow-sm hover:bg-white"
+          >
+            <X className="h-4 w-4" />
+            {kidMessages.cta.quit}
+          </button>
+        </div>
       </div>
 
       {/* Progress bar */}

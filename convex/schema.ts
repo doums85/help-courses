@@ -175,13 +175,25 @@ export default defineSchema({
     conditionType: v.optional(v.string()),
     conditionParams: v.optional(v.any()),
     order: v.optional(v.number()),
-    rarity: v.optional(v.string()),
+    // D10 — Phase B narrow. Before deploying this validator, run once:
+    //   npx convex run badges:normalizeRarities
+    // Otherwise the schema push will reject existing rows whose rarity is a
+    // legacy free-form string (e.g. "Bronze", "uncommon"). The migration is
+    // idempotent so it's safe to re-run.
+    rarity: v.optional(
+      v.union(
+        v.literal("common"),
+        v.literal("rare"),
+        v.literal("epic"),
+        v.literal("legendary"),
+      ),
+    ),
     source: v.optional(v.string()),
     tierSystem: v.optional(v.string()),
     tiers: v.optional(v.any()),
     visibility: v.optional(v.string()),
     xpReward: v.optional(v.number()),
-  }),
+  }).index("by_rarity", ["rarity"]),
 
   // ---------------------------------------------------------------------------
   // earnedBadges

@@ -18,6 +18,7 @@ import {
   scoreExerciseFromAttempts,
 } from "./paliers/scoring";
 import { shuffleDeterministic } from "./paliers";
+import { internal } from "./_generated/api";
 
 // ===========================================================================
 // Verification helpers — server-side only, never expose correctAnswer.
@@ -268,6 +269,11 @@ export const submitPalier = mutation({
       averageScore: result.average,
       failedExerciseIds: failedIds,
       completedAt: Date.now(),
+    });
+
+    // D7 — record daily activity for streak (no-op if streaks disabled).
+    await ctx.runMutation(internal.streak.recordKidActivity, {
+      studentId: profile._id,
     });
 
     // Cumulative regen check (Decision 60) — UI uses canRegen flag.
